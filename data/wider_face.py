@@ -6,12 +6,14 @@ import torch.utils.data as data
 import cv2
 import numpy as np
 
+
 class WiderFaceDetection(data.Dataset):
     def __init__(self, txt_path, preproc=None):
+        print("WiderFaceDetection:__init__")
         self.preproc = preproc
         self.imgs_path = []
         self.words = []
-        f = open(txt_path,'r')
+        f = open(txt_path, 'r')
         lines = f.readlines()
         isFirst = True
         labels = []
@@ -25,7 +27,7 @@ class WiderFaceDetection(data.Dataset):
                     self.words.append(labels_copy)
                     labels.clear()
                 path = line[2:]
-                path = txt_path.replace('label.txt','images/') + path
+                path = txt_path.replace('label.txt', 'images/') + path
                 self.imgs_path.append(path)
             else:
                 line = line.split(' ')
@@ -64,7 +66,7 @@ class WiderFaceDetection(data.Dataset):
             annotation[0, 11] = label[14]  # l3_y
             annotation[0, 12] = label[16]  # l4_x
             annotation[0, 13] = label[17]  # l4_y
-            if (annotation[0, 4]<0):
+            if (annotation[0, 4] < 0):
                 annotation[0, 14] = -1
             else:
                 annotation[0, 14] = 1
@@ -75,6 +77,7 @@ class WiderFaceDetection(data.Dataset):
             img, target = self.preproc(img, target)
 
         return torch.from_numpy(img), target
+
 
 def detection_collate(batch):
     """Custom collate fn for dealing with batches of images that have a different
