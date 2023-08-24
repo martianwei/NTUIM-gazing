@@ -41,7 +41,7 @@ class MultiBoxLoss(nn.Module):
         self.neg_overlap = neg_overlap
         self.variance = [0.1, 0.2]
 
-    def forward(self, predictions, priors, targets):
+    def forward(self, predictions, gaze_data, priors, targets, targets_gaze):
         """Multibox Loss
         Args:
             predictions (tuple): A tuple containing loc preds, conf preds,
@@ -53,7 +53,7 @@ class MultiBoxLoss(nn.Module):
             ground_truth (tensor): Ground truth boxes and labels for a batch,
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
-
+        # face 4 points, binary 2 classification, landmark 10 points
         loc_data, conf_data, landm_data = predictions
         priors = priors
         num = loc_data.size(0)
@@ -63,16 +63,21 @@ class MultiBoxLoss(nn.Module):
         loc_t = torch.Tensor(num, num_priors, 4)
         landm_t = torch.Tensor(num, num_priors, 10)
         conf_t = torch.LongTensor(num, num_priors)
+        gaze_t = torch.Tensor(num, num_priors, 2)
+
         for idx in range(num):
             truths = targets[idx][:, :4].data
-            labels = targets[idx][:, -1].data
+            labels = targets[idx][:, 14].data
             landms = targets[idx][:, 4:14].data
+            gazes = targets_gaze[idx].data
+
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels, landms, loc_t, conf_t, landm_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, landms, gazes, loc_t, conf_t, landm_t, gaze_t, idx)
         if GPU:
             loc_t = loc_t.cuda()
             conf_t = conf_t.cuda()
             landm_t = landm_t.cuda()
+            gaze_t = gaze_t.cuda()
 
         zeros = torch.tensor(0).cuda()
         # landm Loss (Smooth L1)
@@ -80,12 +85,23 @@ class MultiBoxLoss(nn.Module):
         pos1 = conf_t > zeros
         num_pos_landm = pos1.long().sum(1, keepdim=True)
         N1 = max(num_pos_landm.data.sum().float(), 1)
+
         pos_idx1 = pos1.unsqueeze(pos1.dim()).expand_as(landm_data)
         landm_p = landm_data[pos_idx1].view(-1, 10)
         landm_t = landm_t[pos_idx1].view(-1, 10)
         loss_landm = F.smooth_l1_loss(landm_p, landm_t, reduction='sum')
-
-
+        
+        pos_idx2 = pos1.unsqueeze(pos1.dim()).expand_as(gaze_data)
+        gaze_p =  gaze_data[pos_idx2].view(-1, 2)
+        gaze_t = gaze_t[pos_idx2].view(-1, 2)
+        print("landmark_p", landm_p[:10,:])
+        print("landmark_t", landm_t[:10,:])
+        print("gaze_p", gaze_p[:10,:])
+        print("gaze_t", gaze_t[:10,:])
+        loss_gaze = F.smooth_l1_loss(gaze_p, gaze_t, reduction='sum')
+        print(landm_p.shape, landm_t.shape)
+        print(gaze_p.shape, gaze_t.shape)
+        
         pos = conf_t != zeros
         conf_t[pos] = 1
 
@@ -121,5 +137,6 @@ class MultiBoxLoss(nn.Module):
         loss_l /= N
         loss_c /= N
         loss_landm /= N1
+        loss_gaze /= N1
 
-        return loss_l, loss_c, loss_landm
+        return loss_l, loss_c, loss_landm, loss_gaze

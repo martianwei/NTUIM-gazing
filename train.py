@@ -1,6 +1,7 @@
 from __future__ import print_function
 import os
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import argparse
@@ -64,37 +65,39 @@ net = RetinaFace(cfg=cfg)
 print("Printing net...")
 print(net)
 
-# if args.resume_net is not None:
-#     print('Loading resume network...')
-#     state_dict = torch.load(args.resume_net)
-#     # create new OrderedDict that does not contain `module.`
-#     from collections import OrderedDict
-#     new_state_dict = OrderedDict()
-#     for k, v in state_dict.items():
-#         head = k[:7]
-#         if head == 'module.':
-#             name = k[7:]  # remove `module.`
-#         else:
-#             name = k
-#         new_state_dict[name] = v
-#     net.load_state_dict(new_state_dict)
+if args.resume_net is not None:
+    print('Loading resume network...')
+    state_dict = torch.load(args.resume_net)
+    # create new OrderedDict that does not contain `module.`
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        head = k[:7]
+        if head == 'module.':
+            name = k[7:]  # remove `module.`
+        else:
+            name = k
+        new_state_dict[name] = v
+    net.load_state_dict(new_state_dict)
 
-# if num_gpu > 1 and gpu_train:
-#     net = torch.nn.DataParallel(net).cuda()
-# else:
-#     net = net.cuda()
+if num_gpu > 1 and gpu_train:
+    net = torch.nn.DataParallel(net).cuda()
+else:
+    net = net.cuda()
 
-# cudnn.benchmark = True
+cudnn.benchmark = True
 
 
-# optimizer = optim.SGD(net.parameters(), lr=initial_lr,
-#                       momentum=momentum, weight_decay=weight_decay)
-# criterion = MultiBoxLoss(num_classes, 0.35, True, 0, True, 7, 0.35, False)
+optimizer = optim.SGD(net.parameters(), lr=initial_lr,
+                      momentum=momentum, weight_decay=weight_decay)
+criterion = MultiBoxLoss(num_classes, 0.35, True, 0, True, 7, 0.35, False)
+# TODO
+criterion_gaze =  nn.L1Loss()
 
-# priorbox = PriorBox(cfg, image_size=(img_dim, img_dim))
-# with torch.no_grad():
-#     priors = priorbox.forward()
-#     priors = priors.cuda()
+priorbox = PriorBox(cfg, image_size=(img_dim, img_dim))
+with torch.no_grad():
+    priors = priorbox.forward()
+    priors = priors.cuda()
 
 
 def train():
@@ -102,75 +105,79 @@ def train():
     epoch = 0 + args.resume_epoch
     print('Loading Dataset...')
     # preproc(img_dim, rgb_mean)
-    dataset = WiderFaceDetection(training_dataset)
-    print(dataset[0])
+    dataset = WiderFaceDetection(training_dataset, preproc(img_dim, rgb_mean))
     print("img count: ", len(dataset.imgs_path))
     labal_cnt = 0
     for i in range(len(dataset.words)):
         labal_cnt += len(dataset.words[i])
     print("label count: ", labal_cnt)
-#     epoch_size = math.ceil(len(dataset) / batch_size)
-#     max_iter = max_epoch * epoch_size
+    epoch_size = math.ceil(len(dataset) / batch_size)
+    max_iter = max_epoch * epoch_size
 
-#     stepvalues = (cfg['decay1'] * epoch_size, cfg['decay2'] * epoch_size)
-#     step_index = 0
+    stepvalues = (cfg['decay1'] * epoch_size, cfg['decay2'] * epoch_size)
+    step_index = 0
 
-#     if args.resume_epoch > 0:
-#         start_iter = args.resume_epoch * epoch_size
-#     else:
-#         start_iter = 0
+    if args.resume_epoch > 0:
+        start_iter = args.resume_epoch * epoch_size
+    else:
+        start_iter = 0
 
-#     for iteration in range(start_iter, max_iter):
-#         if iteration % epoch_size == 0:
-#             # create batch iterator
-#             batch_iterator = iter(data.DataLoader(dataset, batch_size, shuffle=True, num_workers=num_workers, collate_fn=detection_collate))
-#             if (epoch % 10 == 0 and epoch > 0) or (epoch % 5 == 0 and epoch > cfg['decay1']):
-#                 torch.save(net.state_dict(), save_folder + cfg['name']+ '_epoch_' + str(epoch) + '.pth')
-#             epoch += 1
+    for iteration in range(start_iter, max_iter):
+        if iteration % epoch_size == 0:
+            # create batch iterator
+            batch_iterator = iter(data.DataLoader(dataset, batch_size, shuffle=True, num_workers=num_workers, collate_fn=detection_collate))
+            if (epoch % 10 == 0 and epoch > 0) or (epoch % 5 == 0 and epoch > cfg['decay1']):
+                torch.save(net.state_dict(), save_folder + cfg['name']+ '_epoch_' + str(epoch) + '.pth')
+            epoch += 1
 
-#         load_t0 = time.time()
-#         if iteration in stepvalues:
-#             step_index += 1
-#         lr = adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_size)
+        load_t0 = time.time()
+        if iteration in stepvalues:
+            step_index += 1
+        lr = adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_size)
 
-#         # load train data
-#         images, targets = next(batch_iterator)
-#         images = images.cuda()
-#         targets = [anno.cuda() for anno in targets]
+        # load train data
+        images, targets = next(batch_iterator)
+        # print(f"{images}")
 
-#         # forward
-#         out = net(images)
+        print("ab",len(targets))
+        print(targets[0].shape)
+        images = images.cuda()
+        targets_head = [anno[:, :15].cuda() for anno in targets]
+        targets_gaze = [anno[:, 15:].cuda() for anno in targets]
 
-#         # backprop
-#         optimizer.zero_grad()
-#         loss_l, loss_c, loss_landm = criterion(out, priors, targets)
-#         loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm
-#         loss.backward()
-#         optimizer.step()
-#         load_t1 = time.time()
-#         batch_time = load_t1 - load_t0
-#         eta = int(batch_time * (max_iter - iteration))
-#         print('Epoch:{}/{} || Epochiter: {}/{} || Iter: {}/{} || Loc: {:.4f} Cla: {:.4f} Landm: {:.4f} || LR: {:.8f} || Batchtime: {:.4f} s || ETA: {}'
-#               .format(epoch, max_epoch, (iteration % epoch_size) + 1,
-#               epoch_size, iteration + 1, max_iter, loss_l.item(), loss_c.item(), loss_landm.item(), lr, batch_time, str(datetime.timedelta(seconds=eta))))
+        # forward
+        output_face, output_gaze = net(images)
+        # backprop
+        optimizer.zero_grad()
+        loss_l, loss_c, loss_landm, loss_gaze = criterion(output_face, output_gaze, priors, targets_head, targets_gaze)
 
-#     torch.save(net.state_dict(), save_folder + cfg['name'] + '_Final.pth')
-#     # torch.save(net.state_dict(), save_folder + 'Final_Retinaface.pth')
+        loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm 
+        loss.backward()
+        optimizer.step()
+        load_t1 = time.time()
+        batch_time = load_t1 - load_t0
+        eta = int(batch_time * (max_iter - iteration))
+        print('Epoch:{}/{} || Epochiter: {}/{} || Iter: {}/{} || Loc: {:.4f} Cla: {:.4f} Landm: {:.4f} || Gaze: {:.4f} || LR: {:.8f} || Batchtime: {:.4f} s || ETA: {}'
+              .format(epoch, max_epoch, (iteration % epoch_size) + 1,
+              epoch_size, iteration + 1, max_iter, loss_l.item(), loss_c.item(), loss_landm.item(), loss_gaze.item(), lr, batch_time, str(datetime.timedelta(seconds=eta))))
+
+    # torch.save(net.state_dict(), save_folder + cfg['name'] + '_Final.pth')
+    # torch.save(net.state_dict(), save_folder + 'Final_Retinaface.pth')
 
 
-# def adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_size):
-#     """Sets the learning rate
-#     # Adapted from PyTorch Imagenet example:
-#     # https://github.com/pytorch/examples/blob/master/imagenet/main.py
-#     """
-#     warmup_epoch = -1
-#     if epoch <= warmup_epoch:
-#         lr = 1e-6 + (initial_lr-1e-6) * iteration / (epoch_size * warmup_epoch)
-#     else:
-#         lr = initial_lr * (gamma ** (step_index))
-#     for param_group in optimizer.param_groups:
-#         param_group['lr'] = lr
-#     return lr
+def adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_size):
+    """Sets the learning rate
+    # Adapted from PyTorch Imagenet example:
+    # https://github.com/pytorch/examples/blob/master/imagenet/main.py
+    """
+    warmup_epoch = -1
+    if epoch <= warmup_epoch:
+        lr = 1e-6 + (initial_lr-1e-6) * iteration / (epoch_size * warmup_epoch)
+    else:
+        lr = initial_lr * (gamma ** (step_index))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
 
 if __name__ == '__main__':
     train()

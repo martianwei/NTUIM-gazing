@@ -6,7 +6,6 @@ import torch.utils.data as data
 import cv2
 import numpy as np
 
-
 class WiderFaceDetection(data.Dataset):
     def __init__(self, txt_path, preproc=None):
         print("WiderFaceDetection:__init__")
@@ -44,11 +43,11 @@ class WiderFaceDetection(data.Dataset):
         height, width, _ = img.shape
 
         labels = self.words[index]
-        annotations = np.zeros((0, 15))
+        annotations = np.zeros((0, 17))
         if len(labels) == 0:
             return annotations
         for idx, label in enumerate(labels):
-            annotation = np.zeros((1, 15))
+            annotation = np.zeros((1, 17))
             # bbox
             annotation[0, 0] = label[0]  # x1
             annotation[0, 1] = label[1]  # y1
@@ -70,6 +69,10 @@ class WiderFaceDetection(data.Dataset):
                 annotation[0, 14] = -1
             else:
                 annotation[0, 14] = 1
+
+            # gaze pitch and yaw
+            annotation[0, 15] = label[-5]
+            annotation[0, 16] = label[-4]
 
             annotations = np.append(annotations, annotation, axis=0)
         target = np.array(annotations)

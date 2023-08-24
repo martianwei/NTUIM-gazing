@@ -93,7 +93,7 @@ def matrix_iof(a, b):
     return area_i / np.maximum(area_a[:, np.newaxis], 1)
 
 
-def match(threshold, truths, priors, variances, labels, landms, loc_t, conf_t, landm_t, idx):
+def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, conf_t, landm_t, gaze_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -146,11 +146,20 @@ def match(threshold, truths, priors, variances, labels, landms, loc_t, conf_t, l
     conf[best_truth_overlap < threshold] = 0    # label as background   overlap<0.35的全部作为负样本
     loc = encode(matches, priors, variances)
 
+    # print("a", landms.shape)
     matches_landm = landms[best_truth_idx]
     landm = encode_landm(matches_landm, priors, variances)
+    # print("a", landm.shape)
+
+    # print(best_truth_idx)
+    # print(gazes.shape)
+    matches_gaze = gazes[best_truth_idx]
+    gaze = encode_gaze(matches_gaze, priors, variances)
+
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
     landm_t[idx] = landm
+    gaze_t[idx] = matches_gaze
 
 
 def encode(matched, priors, variances):
@@ -204,6 +213,34 @@ def encode_landm(matched, priors, variances):
     # return target for smooth_l1_loss
     return g_cxcy
 
+def encode_gaze(matched, priors, variances):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 2].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded gaze (tensor), Shape: [num_priors, 2]
+    """
+
+    # dist b/t match center and prior's center
+    matched = torch.reshape(matched, (matched.size(0), 1, 2))
+    priors_cx = priors[:, 0].unsqueeze(1).expand(matched.size(0), 1).unsqueeze(2)
+    priors_cy = priors[:, 1].unsqueeze(1).expand(matched.size(0), 1).unsqueeze(2)
+    priors_w = priors[:, 2].unsqueeze(1).expand(matched.size(0), 1).unsqueeze(2)
+    priors_h = priors[:, 3].unsqueeze(1).expand(matched.size(0), 1).unsqueeze(2)
+    priors = torch.cat([priors_cx, priors_cy, priors_w, priors_h], dim=2)
+    g_cxcy = matched[:, :, :2] - priors[:, :, :2]
+    # encode variance
+    g_cxcy /= (variances[0] * priors[:, :, 2:])
+    # g_cxcy /= priors[:, :, 2:]
+    g_cxcy = g_cxcy.reshape(g_cxcy.size(0), -1)
+    # return target for smooth_l1_loss
+    return g_cxcy
+
 
 # Adapted from https://github.com/Hakuyume/chainer-ssd
 def decode(loc, priors, variances):
@@ -245,6 +282,22 @@ def decode_landm(pre, priors, variances):
                         priors[:, :2] + pre[:, 8:10] * variances[0] * priors[:, 2:],
                         ), dim=1)
     return landms
+
+def decode_gaze(pre, priors, variances):
+    """Decode gaze from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        pre (tensor): gaze predictions for loc layers,
+            Shape: [num_priors,2]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded gaze predictions
+    """
+    gazes = torch.cat((priors[:, :2] + pre[:, :2] * variances[0] * priors[:, 2:],
+                        ), dim=1)
+    return gazes
 
 
 def log_sum_exp(x):

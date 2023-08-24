@@ -1,5 +1,5 @@
-txt_path = './data/MPSGaze_train/origin_label.txt'
-proc_path = './data/MPSGaze_train/label.txt'
+txt_path = './data/MPSGaze_val/origin_label.txt'
+proc_path = './data/MPSGaze_val/label.txt'
 origin_label_file = open(txt_path, 'r')
 proc_label_file = open(proc_path, 'w')
 lines = origin_label_file.readlines()

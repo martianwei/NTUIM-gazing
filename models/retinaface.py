@@ -45,6 +45,17 @@ class LandmarkHead(nn.Module):
 
         return out.view(out.shape[0], -1, 10)
 
+class GazeHead(nn.Module):
+    def __init__(self,inchannels=512,num_anchors=3):
+        super(GazeHead,self).__init__()
+        self.conv1x1 = nn.Conv2d(inchannels,num_anchors*2,kernel_size=(1,1),stride=1,padding=0)
+
+    def forward(self,x):
+        out = self.conv1x1(x)
+        out = out.permute(0,2,3,1).contiguous()
+
+        return out.view(out.shape[0], -1, 2)
+
 class RetinaFace(nn.Module):
     def __init__(self, cfg = None, phase = 'train'):
         """
@@ -85,6 +96,7 @@ class RetinaFace(nn.Module):
         self.ClassHead = self._make_class_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.BboxHead = self._make_bbox_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.LandmarkHead = self._make_landmark_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.GazeHead = self._make_gaze_head(fpn_num=3, inchannels=cfg['out_channel'])
 
     def _make_class_head(self,fpn_num=3,inchannels=64,anchor_num=2):
         classhead = nn.ModuleList()
@@ -104,6 +116,12 @@ class RetinaFace(nn.Module):
             landmarkhead.append(LandmarkHead(inchannels,anchor_num))
         return landmarkhead
 
+    def _make_gaze_head(self,fpn_num=3,inchannels=64,anchor_num=2):
+        gazehead = nn.ModuleList()
+        for i in range(fpn_num):
+            gazehead.append(GazeHead(inchannels,anchor_num))
+        return gazehead
+
     def forward(self,inputs):
         out = self.body(inputs)
 
@@ -114,14 +132,17 @@ class RetinaFace(nn.Module):
         feature1 = self.ssh1(fpn[0])
         feature2 = self.ssh2(fpn[1])
         feature3 = self.ssh3(fpn[2])
-        features = [feature1, feature2, feature3]
+        # feature4 = self.ssh4(fpn[3])
+        features = [feature1, feature2, feature3] 
+        # features = [feature1, feature2, feature3, feature4]
 
         bbox_regressions = torch.cat([self.BboxHead[i](feature) for i, feature in enumerate(features)], dim=1)
         classifications = torch.cat([self.ClassHead[i](feature) for i, feature in enumerate(features)],dim=1)
         ldm_regressions = torch.cat([self.LandmarkHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        gaze_regressions = torch.cat([self.GazeHead[i](feature) for i, feature in enumerate(features)], dim=1)
 
         if self.phase == 'train':
-            output = (bbox_regressions, classifications, ldm_regressions)
+            output = ((bbox_regressions, classifications, ldm_regressions), gaze_regressions)
         else:
-            output = (bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions)
+            output = ((bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions), gaze_regressions)
         return output

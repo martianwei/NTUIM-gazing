@@ -4,7 +4,7 @@ import random
 from utils.box_utils import matrix_iof
 
 
-def _crop(image, boxes, labels, landm, img_dim):
+def _crop(image, boxes, labels, landm, gaze, img_dim):
     height, width, _ = image.shape
     pad_image_flag = True
 
@@ -41,6 +41,7 @@ def _crop(image, boxes, labels, landm, img_dim):
         boxes_t = boxes[mask_a].copy()
         labels_t = labels[mask_a].copy()
         landms_t = landm[mask_a].copy()
+        gazes_t = gaze[mask_a].copy()
         landms_t = landms_t.reshape([-1, 5, 2])
 
         if boxes_t.shape[0] == 0:
@@ -59,6 +60,8 @@ def _crop(image, boxes, labels, landm, img_dim):
         landms_t[:, :, :2] = np.minimum(landms_t[:, :, :2], roi[2:] - roi[:2])
         landms_t = landms_t.reshape([-1, 10])
 
+        # TODO gaze?
+
 
 	# make sure that the cropped image contains at least one face > 16 pixel at training image scale
         b_w_t = (boxes_t[:, 2] - boxes_t[:, 0] + 1) / w * img_dim
@@ -67,14 +70,15 @@ def _crop(image, boxes, labels, landm, img_dim):
         boxes_t = boxes_t[mask_b]
         labels_t = labels_t[mask_b]
         landms_t = landms_t[mask_b]
+        gazes_t = gazes_t[mask_b]
 
         if boxes_t.shape[0] == 0:
             continue
 
         pad_image_flag = False
 
-        return image_t, boxes_t, labels_t, landms_t, pad_image_flag
-    return image, boxes, labels, landm, pad_image_flag
+        return image_t, boxes_t, labels_t, landms_t, gazes_t, pad_image_flag
+    return image, boxes, labels, landm, gaze, pad_image_flag
 
 
 def _distort(image):
@@ -164,7 +168,7 @@ def _expand(image, boxes, fill, p):
     return image, boxes_t
 
 
-def _mirror(image, boxes, landms):
+def _mirror(image, boxes, landms, gazes):
     _, width, _ = image.shape
     if random.randrange(2):
         image = image[:, ::-1]
@@ -183,7 +187,13 @@ def _mirror(image, boxes, landms):
         landms[:, 3, :] = tmp1
         landms = landms.reshape([-1, 10])
 
-    return image, boxes, landms
+        # gaze
+        gazes = gazes.copy()
+        # TODO pitch -90 ~ 90
+        # yaw -180 ~ 180
+        gazes[:, 1] = gazes[:, 1] * -1
+
+    return image, boxes, landms, gazes
 
 
 def _pad_to_square(image, rgb_mean, pad_image_flag):
@@ -214,15 +224,15 @@ class preproc(object):
 
     def __call__(self, image, targets):
         assert targets.shape[0] > 0, "this image does not have gt"
-
         boxes = targets[:, :4].copy()
-        labels = targets[:, -1].copy()
-        landm = targets[:, 4:-1].copy()
-
-        image_t, boxes_t, labels_t, landm_t, pad_image_flag = _crop(image, boxes, labels, landm, self.img_dim)
+        labels = targets[:, 14].copy()
+        landm = targets[:, 4:14].copy()
+        gaze = targets[:, 15:].copy()
+        # TODO Which transform change gaze?
+        image_t, boxes_t, labels_t, landm_t, gaze_t, pad_image_flag = _crop(image, boxes, labels, landm, gaze, self.img_dim)
         image_t = _distort(image_t)
         image_t = _pad_to_square(image_t,self.rgb_means, pad_image_flag)
-        image_t, boxes_t, landm_t = _mirror(image_t, boxes_t, landm_t)
+        # image_t, boxes_t, landm_t, gaze_t = _mirror(image_t, boxes_t, landm_t, gaze_t)
         height, width, _ = image_t.shape
         image_t = _resize_subtract_mean(image_t, self.img_dim, self.rgb_means)
         boxes_t[:, 0::2] /= width
@@ -232,6 +242,9 @@ class preproc(object):
         landm_t[:, 1::2] /= height
 
         labels_t = np.expand_dims(labels_t, 1)
-        targets_t = np.hstack((boxes_t, landm_t, labels_t))
+        # print(f"land {landm_t.shape}")
+        # print(f"label {labels_t.shape}")
+        # print(f"gaze {gaze_t.shape}")
+        targets_t = np.hstack((boxes_t, landm_t, labels_t, gaze_t))
 
         return image_t, targets_t
