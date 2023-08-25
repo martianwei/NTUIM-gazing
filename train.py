@@ -151,7 +151,7 @@ def train():
         optimizer.zero_grad()
         loss_l, loss_c, loss_landm, loss_gaze = criterion(output_face, output_gaze, priors, targets_head, targets_gaze)
 
-        loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm 
+        loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm + loss_gaze * 10
         loss.backward()
         optimizer.step()
         load_t1 = time.time()
