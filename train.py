@@ -17,7 +17,7 @@ from models.retinaface import RetinaFace
 parser = argparse.ArgumentParser(description='Retinaface Training')
 parser.add_argument('--training_dataset',
                     default='./data/MPSGaze_train/label.txt', help='Training dataset directory')
-parser.add_argument('--network', default='mobile0.25',
+parser.add_argument('--network', default='resnet50',
                     help='Backbone network mobile0.25 or resnet50')
 parser.add_argument('--num_workers', default=4, type=int,
                     help='Number of workers used in dataloading')
@@ -104,13 +104,16 @@ def train():
     net.train()
     epoch = 0 + args.resume_epoch
     print('Loading Dataset...')
+    
     # preproc(img_dim, rgb_mean)
     dataset = WiderFaceDetection(training_dataset, preproc(img_dim, rgb_mean))
+    
     print("img count: ", len(dataset.imgs_path))
     labal_cnt = 0
     for i in range(len(dataset.words)):
         labal_cnt += len(dataset.words[i])
     print("label count: ", labal_cnt)
+    
     epoch_size = math.ceil(len(dataset) / batch_size)
     max_iter = max_epoch * epoch_size
 
@@ -137,10 +140,7 @@ def train():
 
         # load train data
         images, targets = next(batch_iterator)
-        # print(f"{images}")
-
-        print("ab",len(targets))
-        print(targets[0].shape)
+        
         images = images.cuda()
         targets_head = [anno[:, :15].cuda() for anno in targets]
         targets_gaze = [anno[:, 15:].cuda() for anno in targets]

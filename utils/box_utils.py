@@ -124,9 +124,13 @@ def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, co
     # ignore hard gt
     valid_gt_idx = best_prior_overlap[:, 0] >= 0.2
     best_prior_idx_filter = best_prior_idx[valid_gt_idx, :]
+    # TODO why landmark no?
     if best_prior_idx_filter.shape[0] <= 0:
         loc_t[idx] = 0
         conf_t[idx] = 0
+
+        landm_t[idx] = 0
+        gaze_t[idx] = 0
         return
 
     # [1,num_priors] best ground truth for each prior
@@ -142,7 +146,10 @@ def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, co
     for j in range(best_prior_idx.size(0)):     # 判别此anchor是预测哪一个boxes
         best_truth_idx[best_prior_idx[j]] = j
     matches = truths[best_truth_idx]            # Shape: [num_priors,4] 此处为每一个anchor对应的bbox取出来
+    # TODO  why + 1 ?
     conf = labels[best_truth_idx]               # Shape: [num_priors]      此处为每一个anchor对应的label取出来
+    # conf = labels[best_truth_idx] + 1    
+    
     conf[best_truth_overlap < threshold] = 0    # label as background   overlap<0.35的全部作为负样本
     loc = encode(matches, priors, variances)
 
@@ -154,7 +161,7 @@ def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, co
     # print(best_truth_idx)
     # print(gazes.shape)
     matches_gaze = gazes[best_truth_idx]
-    gaze = encode_gaze(matches_gaze, priors, variances)
+    # gaze = encode_gaze(matches_gaze, priors, variances)
 
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior

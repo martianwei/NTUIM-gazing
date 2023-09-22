@@ -54,9 +54,11 @@ class MultiBoxLoss(nn.Module):
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
         # face 4 points, binary 2 classification, landmark 10 points
+        # num_priors = 16800
         loc_data, conf_data, landm_data = predictions
-        priors = priors
         num = loc_data.size(0)
+        
+        priors = priors
         num_priors = (priors.size(0))
 
         # match priors (default boxes) and ground truth boxes
@@ -91,18 +93,15 @@ class MultiBoxLoss(nn.Module):
         landm_t = landm_t[pos_idx1].view(-1, 10)
         loss_landm = F.smooth_l1_loss(landm_p, landm_t, reduction='sum')
         
-        pos_idx2 = pos1.unsqueeze(pos1.dim()).expand_as(gaze_data)
+        pos2 = conf_t > zeros
+        pos_idx2 = pos2.unsqueeze(pos2.dim()).expand_as(gaze_data)
+        num_pos_gaze = pos2.long().sum(1, keepdim=True)
+        N2 = max(num_pos_gaze.data.sum().float(), 1)
         gaze_p =  gaze_data[pos_idx2].view(-1, 2)
         gaze_t = gaze_t[pos_idx2].view(-1, 2)
-        print("landmark_p", landm_p[:10,:])
-        print("landmark_t", landm_t[:10,:])
-        print("gaze_p", gaze_p[:10,:])
-        print("gaze_t", gaze_t[:10,:])
         loss_gaze = F.smooth_l1_loss(gaze_p, gaze_t, reduction='sum')
-        print(landm_p.shape, landm_t.shape)
-        print(gaze_p.shape, gaze_t.shape)
         
-        pos = conf_t != zeros
+        pos = conf_t > zeros
         conf_t[pos] = 1
 
         # Localization Loss (Smooth L1)
@@ -137,6 +136,6 @@ class MultiBoxLoss(nn.Module):
         loss_l /= N
         loss_c /= N
         loss_landm /= N1
-        loss_gaze /= N1
+        loss_gaze /= N2
 
         return loss_l, loss_c, loss_landm, loss_gaze
