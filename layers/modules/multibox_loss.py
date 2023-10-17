@@ -41,7 +41,11 @@ class MultiBoxLoss(nn.Module):
         self.neg_overlap = neg_overlap
         self.variance = [0.1, 0.2]
 
-    def forward(self, predictions, gaze_data, priors, targets, targets_gaze):
+        self.front_gaze_weights = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True).cuda()
+        self.top_gaze_weights = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True).cuda()
+        self.side_gaze_weights = torch.nn.Parameter(torch.tensor(1.0), requires_grad=True).cuda()
+
+    def forward(self, predictions, gaze_predictions, priors, targets, targets_gaze):
         """Multibox Loss
         Args:
             predictions (tuple): A tuple containing loc preds, conf preds,
@@ -55,6 +59,9 @@ class MultiBoxLoss(nn.Module):
         """
         # face 4 points, binary 2 classification, landmark 10 points
         loc_data, conf_data, landm_data = predictions
+        # 3D gaze predictions, 3 2D gaze prediction
+        gaze_data, front_gaze_data, top_gaze_data, side_gaze_data = gaze_predictions
+        
         priors = priors
         num = loc_data.size(0)
         num_priors = (priors.size(0))
@@ -64,20 +71,27 @@ class MultiBoxLoss(nn.Module):
         landm_t = torch.Tensor(num, num_priors, 10)
         conf_t = torch.LongTensor(num, num_priors)
         gaze_t = torch.Tensor(num, num_priors, 2)
+        front_gaze_t = torch.Tensor(num, num_priors, 2)
+        top_gaze_t = torch.Tensor(num, num_priors, 2)
+        side_gaze_t = torch.Tensor(num, num_priors, 2)
 
         for idx in range(num):
             truths = targets[idx][:, :4].data
             labels = targets[idx][:, 14].data
             landms = targets[idx][:, 4:14].data
             gazes = targets_gaze[idx].data
+            gaze_prediction = gaze_data[idx].data
 
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels, landms, gazes, loc_t, conf_t, landm_t, gaze_t, idx)
+            match(self.threshold, truths, defaults, self.variance, labels, landms, gazes, gaze_prediction, loc_t, conf_t, landm_t, gaze_t, front_gaze_t, top_gaze_t, side_gaze_t, idx)
         if GPU:
             loc_t = loc_t.cuda()
             conf_t = conf_t.cuda()
             landm_t = landm_t.cuda()
             gaze_t = gaze_t.cuda()
+            front_gaze_t = front_gaze_t.cuda()
+            top_gaze_t = top_gaze_t.cuda()
+            side_gaze_t = side_gaze_t.cuda()
 
         zeros = torch.tensor(0).cuda()
         # landm Loss (Smooth L1)
@@ -92,16 +106,26 @@ class MultiBoxLoss(nn.Module):
         loss_landm = F.smooth_l1_loss(landm_p, landm_t, reduction='sum')
         
         pos_idx2 = pos1.unsqueeze(pos1.dim()).expand_as(gaze_data)
+        
         gaze_p =  gaze_data[pos_idx2].view(-1, 2)
         gaze_t = gaze_t[pos_idx2].view(-1, 2)
-        # print("landmark_p", landm_p[:10,:])
-        # print("landmark_t", landm_t[:10,:])
-        # print("gaze_p", gaze_p[:10,:])
-        # print("gaze_t", gaze_t[:10,:])
         loss_gaze = F.smooth_l1_loss(gaze_p, gaze_t, reduction='sum')
-        print(landm_p.shape, landm_t.shape)
-        print(gaze_p.shape, gaze_t.shape)
         
+        front_gaze_p =  front_gaze_data[pos_idx2].view(-1, 2)
+        front_gaze_t = front_gaze_t[pos_idx2].view(-1, 2)
+        loss_front_gaze = F.smooth_l1_loss(front_gaze_p, front_gaze_t, reduction='sum')
+
+        top_gaze_p =  top_gaze_data[pos_idx2].view(-1, 2)
+        top_gaze_t = top_gaze_t[pos_idx2].view(-1, 2)
+        loss_top_gaze = F.smooth_l1_loss(top_gaze_p, top_gaze_t, reduction='sum')
+
+        side_gaze_p =  side_gaze_data[pos_idx2].view(-1, 2)
+        side_gaze_t = side_gaze_t[pos_idx2].view(-1, 2)
+        loss_side_gaze = F.smooth_l1_loss(side_gaze_p, side_gaze_t, reduction='sum')
+
+        # loss_self =  F.smooth_l1_loss(front_gaze_p, front_gaze_t, reduction='sum') * torch.exp(-self.front_gaze_weights) - self.front_gaze_weights + F.smooth_l1_loss(top_gaze_p, top_gaze_t, reduction='sum') * torch.exp(-self.top_gaze_weights) - self.side_gaze_weights + F.smooth_l1_loss(side_gaze_p, side_gaze_t, reduction='sum') * torch.exp(-self.side_gaze_weights) - self.side_gaze_weights  
+        loss_self = 0
+
         pos = conf_t != zeros
         conf_t[pos] = 1
 
@@ -138,5 +162,9 @@ class MultiBoxLoss(nn.Module):
         loss_c /= N
         loss_landm /= N1
         loss_gaze /= N1
+        loss_front_gaze /= N1 
+        loss_top_gaze /= N1 
+        loss_side_gaze /= N1 
+        loss_self /= (N1 * 3)
 
-        return loss_l, loss_c, loss_landm, loss_gaze
+        return loss_l, loss_c, loss_landm, loss_gaze, loss_front_gaze, loss_top_gaze, loss_side_gaze, loss_self
