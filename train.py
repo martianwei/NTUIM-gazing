@@ -19,7 +19,7 @@ parser.add_argument('--training_dataset',
                     default='./data/MPSGaze_train/label.txt', help='Training dataset directory')
 parser.add_argument('--network', default='resnet50',
                     help='Backbone network mobile0.25 or resnet50')
-parser.add_argument('--num_workers', default=4, type=int,
+parser.add_argument('--num_workers', default=0, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--lr', '--learning-rate', default=1e-3,
                     type=float, help='initial learning rate')
@@ -149,17 +149,18 @@ def train():
         output_face, output_gaze = net(images)
         # backprop
         optimizer.zero_grad()
-        loss_l, loss_c, loss_landm, loss_gaze = criterion(output_face, output_gaze, priors, targets_head, targets_gaze)
+        loss_l, loss_c, loss_landm, loss_gaze, loss_front_gaze, loss_top_gaze, loss_side_gaze, loss_self = criterion(output_face, output_gaze, priors, targets_head, targets_gaze)
 
-        loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm + loss_gaze
+        loss = cfg['loc_weight'] * loss_l + loss_c + loss_landm + loss_gaze + loss_front_gaze + loss_top_gaze + loss_side_gaze + loss_self
+
         loss.backward()
         optimizer.step()
         load_t1 = time.time()
         batch_time = load_t1 - load_t0
         eta = int(batch_time * (max_iter - iteration))
-        print('Epoch:{}/{} || Epochiter: {}/{} || Iter: {}/{} || Loc: {:.4f} Cla: {:.4f} Landm: {:.4f} || Gaze: {:.4f} || LR: {:.8f} || Batchtime: {:.4f} s || ETA: {}'
+        print('Epoch:{}/{} || Epochiter: {}/{} || Iter: {}/{} || Loc: {:.4f} Cla: {:.4f} Landm: {:.4f} || Gaze: {:.4f} || Front Gaze: {:.4f} || Top Gaze: {:.4f} || Side Gaze: {:.4f} || Self: {:.4f} || LR: {:.8f} || Batchtime: {:.4f} s || ETA: {}'
               .format(epoch, max_epoch, (iteration % epoch_size) + 1,
-              epoch_size, iteration + 1, max_iter, loss_l.item(), loss_c.item(), loss_landm.item(), loss_gaze.item(), lr, batch_time, str(datetime.timedelta(seconds=eta))))
+              epoch_size, iteration + 1, max_iter, loss_l.item(), loss_c.item(), loss_landm.item(), loss_gaze.item(), loss_front_gaze.item(), loss_top_gaze.item(), loss_side_gaze.item(), loss_self.item(), lr, batch_time, str(datetime.timedelta(seconds=eta))))
 
     # torch.save(net.state_dict(), save_folder + cfg['name'] + '_Final.pth')
     # torch.save(net.state_dict(), save_folder + 'Final_Retinaface.pth')

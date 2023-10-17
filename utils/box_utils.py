@@ -93,7 +93,7 @@ def matrix_iof(a, b):
     return area_i / np.maximum(area_a[:, np.newaxis], 1)
 
 
-def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, conf_t, landm_t, gaze_t, idx):
+def match(threshold, truths, priors, variances, labels, landms, gazes, gaze_predictions, loc_t, conf_t, landm_t, gaze_t, front_gaze_t, top_gaze_t, side_gaze_t, idx):
     """Match each prior box with the ground truth box of the highest jaccard
     overlap, encode the bounding boxes, then return the matched indices
     corresponding to both confidence and location preds.
@@ -131,6 +131,9 @@ def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, co
 
         landm_t[idx] = 0
         gaze_t[idx] = 0
+        front_gaze_t[idx] = 0
+        top_gaze_t[idx] = 0
+        side_gaze_t[idx] = 0
         return
 
     # [1,num_priors] best ground truth for each prior
@@ -153,20 +156,29 @@ def match(threshold, truths, priors, variances, labels, landms, gazes, loc_t, co
     conf[best_truth_overlap < threshold] = 0    # label as background   overlap<0.35的全部作为负样本
     loc = encode(matches, priors, variances)
 
-    # print("a", landms.shape)
     matches_landm = landms[best_truth_idx]
     landm = encode_landm(matches_landm, priors, variances)
-    # print("a", landm.shape)
 
-    # print(best_truth_idx)
-    # print(gazes.shape)
     matches_gaze = gazes[best_truth_idx]
-    # gaze = encode_gaze(matches_gaze, priors, variances)
+    
+    r = (matches[:, 2] - matches[:, 0]) / 2
+    pitch = gazes[best_truth_idx][:, 0]
+    yaw = gazes[best_truth_idx][:, 1]
+    matches_front_gaze = torch.cat(((-r * torch.sin(yaw) * torch.cos(pitch)).unsqueeze(1), 
+                                    (-r * torch.sin(pitch)).unsqueeze(1)), dim = 1)
+    matches_top_gaze = torch.cat(((r * torch.cos(yaw) * torch.cos(pitch)).unsqueeze(1), 
+                                   ( -r * torch.sin(yaw) * torch.cos(pitch)).unsqueeze(1)), dim = 1)
+    matches_side_gaze = torch.cat(((-r * torch.cos(yaw) * torch.cos(pitch)).unsqueeze(1), 
+                                     (-r * torch.sin(pitch)).unsqueeze(1)), dim = 1)
+
 
     loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
     conf_t[idx] = conf  # [num_priors] top class label for each prior
     landm_t[idx] = landm
     gaze_t[idx] = matches_gaze
+    front_gaze_t[idx] = matches_front_gaze
+    top_gaze_t[idx] = matches_top_gaze
+    side_gaze_t[idx] = matches_side_gaze
 
 
 def encode(matched, priors, variances):

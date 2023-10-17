@@ -56,6 +56,40 @@ class GazeHead(nn.Module):
 
         return out.view(out.shape[0], -1, 2)
 
+
+class FrontGazeHead(nn.Module):
+    def __init__(self,inchannels=512,num_anchors=3):
+        super(FrontGazeHead,self).__init__()
+        self.conv1x1 = nn.Conv2d(inchannels,num_anchors*2,kernel_size=(1,1),stride=1,padding=0)
+
+    def forward(self,x):
+        out = self.conv1x1(x)
+        out = out.permute(0,2,3,1).contiguous()
+
+        return out.view(out.shape[0], -1, 2)
+    
+class TopGazeHead(nn.Module):
+    def __init__(self,inchannels=512,num_anchors=3):
+        super(TopGazeHead,self).__init__()
+        self.conv1x1 = nn.Conv2d(inchannels,num_anchors*2,kernel_size=(1,1),stride=1,padding=0)
+
+    def forward(self,x):
+        out = self.conv1x1(x)
+        out = out.permute(0,2,3,1).contiguous()
+
+        return out.view(out.shape[0], -1, 2)
+
+class SideGazeHead(nn.Module):
+    def __init__(self,inchannels=512,num_anchors=3):
+        super(SideGazeHead,self).__init__()
+        self.conv1x1 = nn.Conv2d(inchannels,num_anchors*2,kernel_size=(1,1),stride=1,padding=0)
+
+    def forward(self,x):
+        out = self.conv1x1(x)
+        out = out.permute(0,2,3,1).contiguous()
+
+        return out.view(out.shape[0], -1, 2)
+
 class RetinaFace(nn.Module):
     def __init__(self, cfg = None, phase = 'train'):
         """
@@ -97,6 +131,9 @@ class RetinaFace(nn.Module):
         self.BboxHead = self._make_bbox_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.LandmarkHead = self._make_landmark_head(fpn_num=3, inchannels=cfg['out_channel'])
         self.GazeHead = self._make_gaze_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.FrontGazeHead = self._make_front_gaze_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.TopGazeHead = self._make_top_gaze_head(fpn_num=3, inchannels=cfg['out_channel'])
+        self.SideGazeHead = self._make_side_gaze_head(fpn_num=3, inchannels=cfg['out_channel'])
 
     def _make_class_head(self,fpn_num=3,inchannels=64,anchor_num=2):
         classhead = nn.ModuleList()
@@ -122,6 +159,24 @@ class RetinaFace(nn.Module):
             gazehead.append(GazeHead(inchannels,anchor_num))
         return gazehead
 
+    def _make_front_gaze_head(self,fpn_num=3,inchannels=64,anchor_num=2):
+        frontgazehead = nn.ModuleList()
+        for i in range(fpn_num):
+            frontgazehead.append(FrontGazeHead(inchannels,anchor_num))
+        return frontgazehead
+    
+    def _make_top_gaze_head(self,fpn_num=3,inchannels=64,anchor_num=2):
+        topgazehead = nn.ModuleList()
+        for i in range(fpn_num):
+            topgazehead.append(TopGazeHead(inchannels,anchor_num))
+        return topgazehead
+
+    def _make_side_gaze_head(self,fpn_num=3,inchannels=64,anchor_num=2):
+        sidegazehead = nn.ModuleList()
+        for i in range(fpn_num):
+            sidegazehead.append(SideGazeHead(inchannels,anchor_num))
+        return sidegazehead
+
     def forward(self,inputs):
         out = self.body(inputs)
 
@@ -140,9 +195,12 @@ class RetinaFace(nn.Module):
         classifications = torch.cat([self.ClassHead[i](feature) for i, feature in enumerate(features)],dim=1)
         ldm_regressions = torch.cat([self.LandmarkHead[i](feature) for i, feature in enumerate(features)], dim=1)
         gaze_regressions = torch.cat([self.GazeHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        front_gaze_regressions = torch.cat([self.FrontGazeHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        top_gaze_regressions = torch.cat([self.TopGazeHead[i](feature) for i, feature in enumerate(features)], dim=1)
+        side_gaze_regressions = torch.cat([self.SideGazeHead[i](feature) for i, feature in enumerate(features)], dim=1)
 
         if self.phase == 'train':
-            output = ((bbox_regressions, classifications, ldm_regressions), gaze_regressions)
+            output = ((bbox_regressions, classifications, ldm_regressions), (gaze_regressions, front_gaze_regressions, top_gaze_regressions, side_gaze_regressions))
         else:
             output = ((bbox_regressions, F.softmax(classifications, dim=-1), ldm_regressions), gaze_regressions)
         return output
