@@ -11,3 +11,4 @@ curve
 data/MPSGaze_val/images
 data/test*
 FDDB
+*__pycache__*
